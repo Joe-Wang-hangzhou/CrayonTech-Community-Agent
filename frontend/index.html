@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>QQ 群消息总结</title>
+  <style>
+    /* Apple Design Typography & Layout */
+    :root { 
+      font: 100%/1.5 system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; 
+    }
+    
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #f5f5f7;
+      background-image: radial-gradient(circle at top right, #e2eafc, #f5f5f7 50%);
+      color: #1d1d1f;
+      -webkit-font-smoothing: antialiased;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    /* Translucent material */
+    .card {
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      border-radius: 24px;
+      padding: 32px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.02);
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin: 0 0 4px 0;
+      letter-spacing: -0.02em;
+      text-align: center;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #86868b;
+      font-size: 0.95rem;
+      margin: 0 0 12px 0;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    label {
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #86868b;
+      margin-left: 4px;
+    }
+
+    input {
+      appearance: none;
+      -webkit-appearance: none;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 1.05rem;
+      background: rgba(255, 255, 255, 0.8);
+      transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+      font-family: inherit;
+      color: #1d1d1f;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #0071e3;
+      box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.15);
+      background: #ffffff;
+    }
+    
+    input::placeholder {
+      color: #a1a1a6;
+    }
+
+    /* Response button with instant press feedback */
+    button {
+      appearance: none;
+      -webkit-appearance: none;
+      background: #0071e3;
+      color: white;
+      border: none;
+      border-radius: 14px;
+      padding: 16px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 100ms ease-out, background-color 200ms ease, opacity 200ms;
+      margin-top: 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.97);
+      background-color: #0077ED;
+    }
+
+    button:disabled {
+      background: #a1a1a6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Spinner for loading state */
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Result area with spring-like appearance */
+    .result-container {
+      display: none;
+      margin-top: 16px;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      animation: springUp 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.1);
+    }
+
+    .result-container h3 {
+      margin: 0 0 12px 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #1d1d1f;
+    }
+
+    .result-content {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: #333336;
+      white-space: pre-wrap;
+    }
+
+    @keyframes springUp {
+      0% { opacity: 0; transform: translateY(16px) scale(0.95); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Accessibility / Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+      button:active:not(:disabled) {
+        transform: none;
+      }
+      .result-container {
+        animation: fadeIn 0.3s ease;
+      }
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div>
+      <h1>群消息总结</h1>
+      <p class="subtitle">AI 智能提取单日核心话题</p>
+    </div>
+
+    <div class="input-group">
+      <label for="groupId">QQ 群号</label>
+      <input type="number" id="groupId" placeholder="输入群号" required autocomplete="off">
+    </div>
+
+    <div class="input-group">
+      <label for="queryDate">查询日期</label>
+      <!-- 设置默认日期为今天 -->
+      <input type="date" id="queryDate" required>
+    </div>
+
+    <button id="submitBtn">
+      <div class="spinner" id="spinner"></div>
+      <span id="btnText">生成总结</span>
+    </button>
+
+    <div class="result-container" id="resultContainer">
+      <h3>📋 今日总结</h3>
+      <div class="result-content" id="resultContent"></div>
+    </div>
+  </div>
+
+  <script>
+    // Initialize date picker to today
+    document.getElementById('queryDate').valueAsDate = new Date();
+
+    const submitBtn = document.getElementById('submitBtn');
+    const spinner = document.getElementById('spinner');
+    const btnText = document.getElementById('btnText');
+    const resultContainer = document.getElementById('resultContainer');
+    const resultContent = document.getElementById('resultContent');
+    const groupIdInput = document.getElementById('groupId');
+    const queryDateInput = document.getElementById('queryDate');
+
+    submitBtn.addEventListener('click', async () => {
+      const groupId = groupIdInput.value.trim();
+      const queryDate = queryDateInput.value;
+
+      if (!groupId || !queryDate) {
+        alert("请填写完整的群号和日期");
+        return;
+      }
+
+      // UI Transition: Loading State
+      submitBtn.disabled = true;
+      spinner.style.display = 'block';
+      btnText.textContent = '正在生成...';
+      resultContainer.style.display = 'none';
+
+      try {
+        const url = `/api/summary?group_id=${encodeURIComponent(groupId)}&date=${encodeURIComponent(queryDate)}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          let errorMsg = "获取总结失败，请重试。";
+          if (response.status === 404) {
+            errorMsg = "当天没有已采集的文本消息";
+          }
+          try {
+            const errData = await response.json();
+            if (errData && errData.detail) {
+              errorMsg = typeof errData.detail === "string" ? errData.detail : JSON.stringify(errData.detail);
+            }
+          } catch (_) {}
+          throw new Error(errorMsg);
+        }
+
+        const data = await response.json();
+        const summary = data.summary;
+
+        // UI Transition: Show result
+        resultContent.textContent = summary;
+
+        // Reset old animation to re-trigger it
+        resultContainer.style.animation = 'none';
+        resultContainer.offsetHeight; // trigger reflow
+        resultContainer.style.animation = null;
+
+        resultContainer.style.display = 'block';
+      } catch (error) {
+        alert(error.message || "获取总结失败，请重试。");
+      } finally {
+        // UI Transition: Restore button state
+        submitBtn.disabled = false;
+        spinner.style.display = 'none';
+        btnText.textContent = '生成总结';
+      }
+    });
+  </script>
+</body>
+</html>

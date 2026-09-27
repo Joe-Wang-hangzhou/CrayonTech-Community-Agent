@@ -6,14 +6,14 @@ requiring a real MySQL server during CI/testing.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from src.storage.models import Base, GroupMessage
+from src.storage.models import Base, DailySummary, GroupMessage
 
 SHANGHAI_TZ = timezone(timedelta(hours=8))
 
@@ -330,3 +330,297 @@ def test_get_session_raises_before_init():
             database.get_session()
     finally:
         database._session_factory = saved_factory
+
+
+# ---------------------------------------------------------------------------
+# Test 12: DailySummary 表模型增删查与唯一约束
+# ---------------------------------------------------------------------------
+
+
+async def test_insert_daily_summary(db_session):
+    """DailySummary model is stored correctly."""
+    summary_record = DailySummary(
+        group_id=123456789,
+        summary_date=date(2025, 9, 27),
+        summary_content="今日讨论了 Python 异步框架。",
+        message_count=42,
+    )
+    db_session.add(summary_record)
+    await db_session.commit()
+
+    result = await db_session.execute(
+        select(DailySummary).where(
+            DailySummary.group_id == 123456789,
+            DailySummary.summary_date == date(2025, 9, 27),
+        )
+    )
+    stored = result.scalars().first()
+    assert stored is not None
+    assert stored.group_id == 123456789
+    assert stored.summary_date == date(2025, 9, 27)
+    assert stored.summary_content == "今日讨论了 Python 异步框架。"
+    assert stored.message_count == 42
+    assert stored.created_at is not None
+
+
+async def test_duplicate_daily_summary_rejected(db_engine):
+    """Duplicate (group_id, summary_date) is rejected by unique constraint."""
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    from sqlalchemy.exc import IntegrityError
+
+    async with factory() as session:
+        s1 = DailySummary(
+            group_id=100,
+            summary_date=date(2025, 9, 27),
+            summary_content="first summary",
+            message_count=10,
+        )
+        session.add(s1)
+        await session.commit()
+
+    async with factory() as session:
+        s2 = DailySummary(
+            group_id=100,
+            summary_date=date(2025, 9, 27),
+            summary_content="second summary",
+            message_count=20,
+        )
+        session.add(s2)
+        with pytest.raises(IntegrityError):
+            await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Test 13: Summary Service generate_and_save_summary
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def init_test_db():
+    """Configure src.storage.database to use in-memory SQLite engine for testing."""
+    from src.storage import database
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    saved_engine = database._engine
+    saved_factory = database._session_factory
+
+    database._engine = engine
+    database._session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    yield engine
+
+    await engine.dispose()
+    database._engine = saved_engine
+    database._session_factory = saved_factory
+
+
+async def test_generate_and_save_summary_persists(init_test_db):
+    """generate_and_save_summary fetches messages, calls LLM, saves to DailySummary."""
+    from src.services.summary import generate_and_save_summary
+    from src.storage.database import get_session
+
+    test_date = date(2025, 9, 27)
+    group_id = 999
+
+    # 准备群消息
+    async with get_session() as session:
+        session.add(
+            GroupMessage(
+                group_id=group_id,
+                message_id=1,
+                sent_at=datetime(2025, 9, 27, 10, 0, 0),
+                content_text="讨论需求设计",
+            )
+        )
+        session.add(
+            GroupMessage(
+                group_id=group_id,
+                message_id=2,
+                sent_at=datetime(2025, 9, 27, 11, 0, 0),
+                content_text="完成代码开发",
+            )
+        )
+        await session.commit()
+
+    # 模拟 LLM
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = "这是一份自动生成的测试总结。"
+
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    summary = await generate_and_save_summary(
+        group_id=group_id,
+        date_obj=test_date,
+        client=mock_client,
+        model="mock-model",
+    )
+
+    assert summary == "这是一份自动生成的测试总结。"
+    mock_client.chat.completions.create.assert_called_once()
+
+    # 验证落库
+    async with get_session() as session:
+        result = await session.execute(
+            select(DailySummary).where(
+                DailySummary.group_id == group_id,
+                DailySummary.summary_date == test_date,
+            )
+        )
+        saved = result.scalars().first()
+        assert saved is not None
+        assert saved.summary_content == "这是一份自动生成的测试总结。"
+        assert saved.message_count == 2
+
+
+async def test_generate_and_save_summary_cache_hit(init_test_db):
+    """When DailySummary already exists, returns cached content without calling LLM."""
+    from src.services.summary import generate_and_save_summary
+    from src.storage.database import get_session
+
+    test_date = date(2025, 9, 27)
+    group_id = 888
+
+    # 预先存入已存在的总结
+    async with get_session() as session:
+        session.add(
+            DailySummary(
+                group_id=group_id,
+                summary_date=test_date,
+                summary_content="已存在的历史总结",
+                message_count=5,
+            )
+        )
+        await session.commit()
+
+    mock_client = AsyncMock()
+
+    summary = await generate_and_save_summary(
+        group_id=group_id,
+        date_obj=test_date,
+        client=mock_client,
+        model="mock-model",
+    )
+
+    assert summary == "已存在的历史总结"
+    mock_client.chat.completions.create.assert_not_called()
+
+
+async def test_generate_and_save_summary_force_refresh(init_test_db):
+    """When force_refresh=True, regenerates and updates existing DailySummary."""
+    from src.services.summary import generate_and_save_summary
+    from src.storage.database import get_session
+
+    test_date = date(2025, 9, 27)
+    group_id = 777
+
+    # 预先存入已有记录及消息
+    async with get_session() as session:
+        session.add(
+            DailySummary(
+                group_id=group_id,
+                summary_date=test_date,
+                summary_content="旧的总结",
+                message_count=1,
+            )
+        )
+        session.add(
+            GroupMessage(
+                group_id=group_id,
+                message_id=1,
+                sent_at=datetime(2025, 9, 27, 9, 0, 0),
+                content_text="最新消息内容",
+            )
+        )
+        await session.commit()
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = "全新重新生成的总结。"
+
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+    summary = await generate_and_save_summary(
+        group_id=group_id,
+        date_obj=test_date,
+        client=mock_client,
+        model="mock-model",
+        force_refresh=True,
+    )
+
+    assert summary == "全新重新生成的总结。"
+    mock_client.chat.completions.create.assert_called_once()
+
+    # 验证数据库记录已被更新
+    async with get_session() as session:
+        result = await session.execute(
+            select(DailySummary).where(
+                DailySummary.group_id == group_id,
+                DailySummary.summary_date == test_date,
+            )
+        )
+        saved = result.scalars().first()
+        assert saved is not None
+        assert saved.summary_content == "全新重新生成的总结。"
+
+
+async def test_generate_and_save_summary_no_messages(init_test_db):
+    """When no messages exist for that day, returns empty string and does not call LLM."""
+    from src.services.summary import generate_and_save_summary
+    from src.storage.database import get_session
+
+    test_date = date(2025, 9, 27)
+    group_id = 666
+
+    mock_client = AsyncMock()
+
+    summary = await generate_and_save_summary(
+        group_id=group_id,
+        date_obj=test_date,
+        client=mock_client,
+        model="mock-model",
+    )
+
+    assert summary == ""
+    mock_client.chat.completions.create.assert_not_called()
+
+    # 验证未写入总结表
+    async with get_session() as session:
+        result = await session.execute(
+            select(DailySummary).where(
+                DailySummary.group_id == group_id,
+                DailySummary.summary_date == test_date,
+            )
+        )
+        saved = result.scalars().first()
+        assert saved is None
+
+
+async def test_generate_and_save_summary_missing_env(init_test_db):
+    """Raises ValueError when LLM environment variables are missing and no client is passed."""
+    from src.services.summary import generate_and_save_summary
+    from src.storage.database import get_session
+
+    test_date = date(2025, 9, 27)
+    group_id = 555
+
+    # 插入消息以进入 LLM 阶段
+    async with get_session() as session:
+        session.add(
+            GroupMessage(
+                group_id=group_id,
+                message_id=1,
+                sent_at=datetime(2025, 9, 27, 9, 0, 0),
+                content_text="一条消息",
+            )
+        )
+        await session.commit()
+
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(ValueError, match="LLM_API_KEY"):
+            await generate_and_save_summary(group_id=group_id, date_obj=test_date)
