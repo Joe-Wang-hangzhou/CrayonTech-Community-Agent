@@ -74,7 +74,7 @@ docker run -d \
 
 容器启动后，请在浏览器中打开 **WebUI 控制台**：`http://127.0.0.1:6099/webui`
 1. 在网页上扫码登录你的 QQ 号。
-2. 登录成功后，在左侧导航栏找到“网络配置”，添加一个 **反向 WebSocket 客户端**：
+2. 登录成功后，在左侧导航栏找到“网络配置”，添加一个 **WebSocket 客户端**：
    - **地址**：`ws://<NoneBot可达地址>:<PORT>/onebot/v11/ws` (例如：`ws://host.docker.internal:8080/onebot/v11/ws` 或你的局域网 IP)
    - **Token**：填入你在 `.env` 中配置的 `ONEBOT_V11_ACCESS_TOKEN`
 
@@ -88,7 +88,7 @@ uv run python -m src.bot.bot
 
 Bot 启动时会自动检查并创建 MySQL 消息表（如果尚不存在）。启动成功后，Bot 将监听端口并等待 NapCat 连接。在目标 QQ 群中发送一条纯文本消息，检查 Bot 控制台日志，若显示 `已存储消息` 的调试或信息日志，即说明数据链路打通。
 
-### 6. 启动 Web API 服务 (可视化前端)
+### 6. 启动前端
 
 在另一个终端窗口运行：
 

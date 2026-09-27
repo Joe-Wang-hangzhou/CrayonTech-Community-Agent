@@ -34,3 +34,4 @@ logs/
 
 # Flash Worker state
 .fw/
+napcat_data/
