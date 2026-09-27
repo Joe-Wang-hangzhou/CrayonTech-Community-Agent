@@ -18,28 +18,66 @@ if ! command -v uv &> /dev/null; then
     exit 1
 fi
 
-# 3. 同步依赖
+# 3. 询问是否一并启动 NapCat QQ 客户端 Docker
+read -p "🤔 是否需要通过 Docker 一并启动 NapCat (QQ 登录端)? (y/N): " start_docker
+if [[ "$start_docker" =~ ^[Yy]$ ]]; then
+    read -p "👉 请输入要登录的 QQ 号: " qq_account
+    if [ -n "$qq_account" ]; then
+        echo "🐳 正在启动 NapCat Docker..."
+        # 停止并删除旧容器（如果存在）
+        docker rm -f crayon-napcat &>/dev/null || true
+        # 读取 .env 中的 HOST 和 PORT，若无则使用默认值
+        NB_HOST=$(grep '^HOST=' .env | cut -d '=' -f2 || echo "127.0.0.1")
+        NB_PORT=$(grep '^PORT=' .env | cut -d '=' -f2 || echo "8080")
+        
+        # 启动新的 NapCat 容器
+        docker run -d \
+            --name crayon-napcat \
+            --network host \
+            -v "$(pwd)/napcat_data:/app/napcat/config" \
+            -e ACCOUNT="$qq_account" \
+            -e WS_URL="ws://127.0.0.1:${NB_PORT}/onebot/v11/ws" \
+            mlikiowa/napcat-docker:latest
+        
+        NAPCAT_DOCKER_STARTED=true
+        echo "✅ NapCat Docker 已在后台启动 (容器名: crayon-napcat)"
+        echo "⚠️ 请使用命令查看登录二维码: docker logs -f crayon-napcat"
+    else
+        echo "❌ 未输入 QQ 号，跳过 NapCat Docker 启动。"
+    fi
+fi
+
+# 4. 同步依赖
 echo "📦 正在检查并同步依赖包 (uv sync)..."
 uv sync
 
 echo "🟢 准备启动双进程服务..."
 
-# 4. 启动 Bot 进程并放入后台
+# 5. 启动 Bot 进程并放入后台
 echo "--> 启动 NoneBot2 消息采集进程..."
 uv run python -m src.bot.bot &
 BOT_PID=$!
 
-# 5. 启动 Web API 进程并放入后台
+# 6. 启动 Web API 进程并放入后台
 echo "--> 启动 FastAPI Web 接口与前端托管服务..."
 uv run uvicorn src.web.api.main:app --host 127.0.0.1 --port 8000 &
 WEB_PID=$!
 
-# 6. 配置退出时的清理操作
+# 7. 配置退出时的清理操作
 cleanup() {
     echo ""
     echo "🛑 接收到退出信号，正在关闭服务..."
     kill $BOT_PID $WEB_PID 2>/dev/null
     wait $BOT_PID $WEB_PID 2>/dev/null
+    
+    if [ "$NAPCAT_DOCKER_STARTED" = true ]; then
+        read -p "❓ 是否同时关闭并移除 NapCat Docker 容器 (crayon-napcat)? (y/N): " stop_docker
+        if [[ "$stop_docker" =~ ^[Yy]$ ]]; then
+            docker rm -f crayon-napcat
+            echo "✅ NapCat 容器已关闭。"
+        fi
+    fi
+    
     echo "✅ 服务已安全关闭。"
     exit 0
 }
