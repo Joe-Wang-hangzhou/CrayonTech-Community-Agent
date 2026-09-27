@@ -61,10 +61,24 @@ cp config/.env.example .env
 
 ### 4. 配置 NapCat
 
-在 NapCat 网络配置中添加 WebSocket 客户端：
+你可以使用实体客户端，或者直接使用 Docker 快速启动 NapCat（推荐）：
 
-- **地址**：`ws://<NoneBot可达地址>:<PORT>/onebot/v11/ws`
-  - 例如：`ws://127.0.0.1:16666/onebot/v11/ws`
+```bash
+# 启动 NapCat 容器 (请将 ACCOUNT 替换为你的 QQ 号，WS_URL 的端口对齐 .env)
+docker run -d \
+  --name crayon-napcat \
+  --network host \
+  -v "$(pwd)/napcat_data:/app/napcat/config" \
+  -e ACCOUNT="你的QQ号" \
+  -e WS_URL="ws://127.0.0.1:8080/onebot/v11/ws" \
+  mlikiowa/napcat-docker:latest
+
+# 查看二维码扫码登录
+docker logs -f crayon-napcat
+```
+
+若使用其他客户端界面部署 NapCat，请在网络配置中添加 WebSocket 客户端：
+- **地址**：`ws://<NoneBot可达地址>:<PORT>/onebot/v11/ws` (例如：`ws://127.0.0.1:8080/onebot/v11/ws`)
 - **Token**：填入你在 `.env` 中配置的 `ONEBOT_V11_ACCESS_TOKEN`
 
 NapCat 作为 WebSocket 客户端将主动连接 NoneBot 的 WebSocket 服务端。若 NapCat 和 NoneBot 部署在不同机器，请确保 `.env` 中的 `HOST` 绑定了公网或内网可达的网卡地址（如 `0.0.0.0`）。
